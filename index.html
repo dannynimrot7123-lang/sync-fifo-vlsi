@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Synchronous FIFO Simulator</title>
+<style>
+:root{--bg:#0f172a;--sf:#1e293b;--bd:#334155;--tx:#e2e8f0;--mu:#94a3b8;--wr:#34d399;--rd:#f472b6;--ac:#38bdf8;--warn:#fbbf24;--bad:#f87171}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',sans-serif;padding:16px;max-width:760px;margin:auto}
+h1{font-size:1.05rem;color:var(--mu);text-align:center;margin-bottom:14px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px}
+.title{font-size:.72rem;letter-spacing:.08em;color:var(--mu);text-transform:uppercase;margin-bottom:8px;font-weight:700}
+#mem{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.cell{border:2px solid var(--bd);border-radius:6px;padding:8px 4px;text-align:center;position:relative;min-height:62px;background:#111c30}
+.cell .a{font-size:.68rem;color:var(--mu)}
+.cell .d{font-family:Consolas,monospace;font-size:1.05rem;font-weight:700}
+.cell.full{border-color:var(--ac)}
+.cell.empty .d{color:#475569}
+.tag{position:absolute;top:-9px;font-size:.62rem;font-weight:700;padding:1px 5px;border-radius:4px;color:#06251a}
+.tag.w{left:4px;background:var(--wr)}.tag.r{right:4px;background:var(--rd);color:#3b0a22}
+#flags{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.led{display:flex;align-items:center;gap:7px;font-size:.8rem;font-family:Consolas,monospace}
+.led i{width:12px;height:12px;border-radius:50%;background:#334155;display:inline-block}
+.led.on i{box-shadow:0 0 8px currentColor}
+.led.full.on{color:var(--bad)}.led.full.on i{background:var(--bad)}
+.led.empty.on{color:var(--warn)}.led.empty.on i{background:var(--warn)}
+.led.af.on,.led.ae.on{color:#fb923c}.led.af.on i,.led.ae.on i{background:#fb923c}
+.led.err.on{color:var(--bad)}.led.err.on i{background:var(--bad)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input[type=number]{width:90px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:#0a1120;color:var(--tx);font-size:1rem}
+button{padding:10px 16px;border-radius:6px;border:1px solid var(--bd);background:#374151;color:var(--tx);font-weight:700;cursor:pointer;font-size:.9rem}
+button:hover{background:#4b5563}
+button.w{background:#065f46;border-color:var(--wr)}button.r{background:#831843;border-color:var(--rd)}button.x{color:var(--bad);border-color:var(--bad);background:var(--sf)}
+button.on{outline:2px solid var(--warn)}
+#out{font-family:Consolas,monospace;font-size:1.3rem;color:var(--rd)}
+#log{background:#0a1120;border-radius:6px;height:140px;overflow-y:auto;padding:6px 8px;font-family:Consolas,monospace;font-size:.76rem;color:#a3e635}
+#log p.e{color:var(--bad)}
+.stat{font-family:Consolas,monospace;font-size:.85rem;color:var(--mu)}
+.stat b{color:var(--tx)}
+</style></head><body>
+<h1>Synchronous FIFO Simulator &nbsp;|&nbsp; DEPTH = 8 &nbsp;|&nbsp; WIDTH = 8 bits</h1>
+
+<div class="card"><div class="title">Memory array (circular buffer)</div><div id="mem"></div></div>
+
+<div class="card"><div class="title">Status flags</div>
+<div id="flags">
+<div class="led empty" id="f-empty"><i></i>empty</div>
+<div class="led ae" id="f-ae"><i></i>almost_empty</div>
+<div class="led af" id="f-af"><i></i>almost_full</div>
+<div class="led full" id="f-full"><i></i>full</div>
+<div class="led err" id="f-ovf"><i></i>overflow</div>
+<div class="led err" id="f-unf"><i></i>underflow</div>
+</div>
+<div class="stat" style="margin-top:10px">count = <b id="cnt">0</b> / 8 &nbsp; wr_ptr = <b id="wp">0</b> &nbsp; rd_ptr = <b id="rp">0</b> &nbsp; almost_full ≥ <b>6</b> &nbsp; almost_empty ≤ <b>2</b></div>
+</div>
+
+<div class="card"><div class="title">Controls (each click = 1 clock cycle)</div>
+<div class="row">
+<input type="number" id="din" min="0" max="255" value="10" title="wr_data (0-255)">
+<button class="w" onclick="step(1,0)">WRITE</button>
+<button class="r" onclick="step(0,1)">READ</button>
+<button onclick="step(1,1)">WRITE + READ</button>
+<button onclick="step(0,0)">IDLE</button>
+<button class="x" onclick="resetF()">RESET</button>
+</div>
+<div class="row" style="margin-top:10px">
+<button id="auto" onclick="toggleAuto()">▶ Random traffic</button>
+<span>rd_data: <span id="out">--</span></span>
+</div></div>
+
+<div class="card"><div class="title">Event log</div><div id="log"></div></div>
+
+<script>
+const DEPTH=8,AF=2,AE=2;
+let mem,wp,rp,cnt,rdData,ovf,unf,timer=null;
+const $=id=>document.getElementById(id);
+const hex=v=>v==null?'--':v.toString(16).toUpperCase().padStart(2,'0');
+function log(m,err){const p=document.createElement('p');p.textContent=m;if(err)p.className='e';$('log').appendChild(p);$('log').scrollTop=1e9}
+function resetF(){mem=Array(DEPTH).fill(null);wp=rp=cnt=0;rdData=null;ovf=unf=false;$('log').innerHTML='';log('Reset: FIFO empty');render()}
+// one clock cycle, identical rules to sync_fifo.v
+function step(w,r){
+  const d=Math.max(0,Math.min(255,parseInt($('din').value)||0));
+  const full=cnt===DEPTH,empty=cnt===0;
+  const doW=w&&!full,doR=r&&!empty;
+  ovf=!!(w&&full);unf=!!(r&&empty);
+  if(doR){rdData=mem[rp];log(`READ  mem[${rp}] -> 0x${hex(rdData)}`);rp=(rp+1)%DEPTH}
+  if(doW){mem[wp]=d;log(`WRITE 0x${hex(d)} -> mem[${wp}]`);wp=(wp+1)%DEPTH}
+  cnt+=(doW?1:0)-(doR?1:0);
+  if(ovf)log('OVERFLOW: write ignored (FIFO full)',1);
+  if(unf)log('UNDERFLOW: read ignored (FIFO empty)',1);
+  if(!w&&!r)log('idle');
+  render();
+}
+function render(){
+  const m=$('mem');m.innerHTML='';
+  for(let i=0;i<DEPTH;i++){
+    const live=cnt>0&&((i-rp+DEPTH)%DEPTH)<cnt;
+    const c=document.createElement('div');c.className='cell '+(live?'full':'empty');
+    c.innerHTML=`<div class="a">[${i}]</div><div class="d">${live?hex(mem[i]):'--'}</div>`+
+      (i===wp?'<span class="tag w">WR</span>':'')+(i===rp?'<span class="tag r">RD</span>':'');
+    m.appendChild(c);
+  }
+  const set=(id,on)=>$(id).classList.toggle('on',on);
+  set('f-empty',cnt===0);set('f-full',cnt===DEPTH);
+  set('f-ae',cnt<=AE);set('f-af',cnt>=DEPTH-AF);
+  set('f-ovf',ovf);set('f-unf',unf);
+  $('cnt').textContent=cnt;$('wp').textContent=wp;$('rp').textContent=rp;
+  $('out').textContent=rdData==null?'--':'0x'+hex(rdData);
+}
+function toggleAuto(){
+  const b=$('auto');
+  if(timer){clearInterval(timer);timer=null;b.textContent='▶ Random traffic';b.classList.remove('on');return}
+  b.textContent='⏸ Stop';b.classList.add('on');
+  timer=setInterval(()=>{$('din').value=Math.floor(Math.random()*256);step(Math.random()<.55,Math.random()<.45)},500);
+}
+resetF();
+</script></body></html>

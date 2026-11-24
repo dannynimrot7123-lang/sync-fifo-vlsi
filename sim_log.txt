@@ -1,0 +1,17 @@
+VCD info: dumpfile sync_fifo.vcd opened for output.
+[TEST 1] Reset state: empty, not full
+[TEST 2] Fill to full (8 writes) + almost_full
+[TEST 3] Overflow: write while full is ignored
+[TEST 4] Drain to empty + almost_empty (data order check)
+[TEST 5] Underflow: read while empty is ignored
+[TEST 6] Simultaneous read + write (count steady)
+[TEST 7] Simultaneous rd+wr when full / when empty
+[TEST 8] Pointer wrap-around (3 x DEPTH words)
+[TEST 9] Constrained-random (2000 cycles)
+[TEST 10] Mid-operation reset
+
+==========================================
+Checks run: 2112
+ALL TESTS PASSED
+==========================================
+tb/sync_fifo_tb.v:130: $finish called at 21190000 (1ps)
